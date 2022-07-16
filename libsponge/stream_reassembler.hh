@@ -15,20 +15,19 @@ class XskTcpOutOfOrderQueue {
         bool eof;
 
       public:
-        OutOfOrderQueueElem(OutOfOrderQueueElem &&elem, bool eof_ = false) noexcept
+        OutOfOrderQueueElem(OutOfOrderQueueElem &&elem, bool eof_) noexcept
             : buffer(std::move(elem.buffer)), eof(eof_) {}
-        explicit OutOfOrderQueueElem(std::string &&buf, bool eof_ = false) noexcept
-            : buffer(std::move(buf)), eof(eof_) {}
+        explicit OutOfOrderQueueElem(std::string &&buf, bool eof_) noexcept : buffer(std::move(buf)), eof(eof_) {}
     };
     std::map<uint32_t, OutOfOrderQueueElem> queue{};
 
     XskTcpOutOfOrderQueue() = default;
-    void push(uint32_t seq, const std::string &packet, bool eof = false) {
+    void push(uint32_t seq, const std::string &packet, bool eof) {
         const auto idx = seq;
-        // auto buffer = packet.clonePacketBuffer();
         auto buffer = packet;
         if (queue.empty()) {
             queue.emplace(idx, OutOfOrderQueueElem(std::move(buffer), eof));
+            return;
         }
         auto lowerBound = queue.lower_bound(idx);
         while (lowerBound != queue.end()) {
@@ -45,6 +44,7 @@ class XskTcpOutOfOrderQueue {
                 const auto newSize = nextBound - idx;
                 buffer.resize(newSize);
                 memcpy(reinterpret_cast<uint8_t *>(&buffer[size]), &nextElem.buffer[bound - nextIdx], newSize - size);
+                eof = nextElem.eof;
             }
             lowerBound = queue.erase(lowerBound);
         }
@@ -62,9 +62,13 @@ class XskTcpOutOfOrderQueue {
                 return;
             }
             const auto bound = idx + buffer.size();
+            if (bound <= prevBound) {
+                return;
+            }
             auto newSize = bound - prevIdx;
             prevElem.buffer.resize(newSize);
             memcpy(&prevElem.buffer[idx - prevIdx], buffer.data(), buffer.size());
+            prevElem.eof = eof;
         }
     }
     [[nodiscard]] uint32_t topSeq() const { return queue.empty() ? -1 : queue.begin()->first; }
