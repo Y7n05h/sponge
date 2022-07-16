@@ -1,7 +1,11 @@
 #ifndef SPONGE_LIBSPONGE_BYTE_STREAM_HH
 #define SPONGE_LIBSPONGE_BYTE_STREAM_HH
 
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <sys/types.h>
+#include <vector>
 
 //! \brief An in-order byte stream.
 
@@ -10,18 +14,24 @@
 //! and then no more bytes can be written.
 class ByteStream {
   private:
-    // Your code here -- add private members as necessary.
-
-    // Hint: This doesn't need to be a sophisticated data structure at
-    // all, but if any of your tests are taking longer than a second,
-    // that's a sign that you probably want to keep exploring
-    // different approaches.
-    size_t capacity;
-    bool _error{};  //!< Flag indicating that the stream suffered an error.
+    std::vector<uint8_t> buf;
+    const size_t capacity;
+    size_t writerSeq{0};
+    size_t readerSeq{0};
+    size_t prod{0};
+    size_t conm{0};
+    uint8_t flag{0};
+    enum Flag : uint8_t {
+        ERROR = 1 << 0,
+        WRITEEND = 1 << 1,
+    };
+    // bool _error{};  //!< Flag indicating that the stream suffered an error.
+    void writeBytes(const uint8_t *data, size_t size) noexcept;
+    void readBytes(uint8_t *data, size_t size) const noexcept;
 
   public:
     //! Construct a stream with room for `capacity` bytes.
-    ByteStream(const size_t capacity);
+    ByteStream(const size_t cap);
 
     //! \name "Input" interface for the writer
     //!@{
@@ -38,7 +48,7 @@ class ByteStream {
     void end_input();
 
     //! Indicate that the stream suffered an error.
-    void set_error() { _error = true; }
+    void set_error() { flag |= ERROR; }
     //!@}
 
     //! \name "Output" interface for the reader
@@ -59,7 +69,7 @@ class ByteStream {
     bool input_ended() const;
 
     //! \returns `true` if the stream has suffered an error
-    bool error() const { return _error; }
+    bool error() const { return flag & ERROR; }
 
     //! \returns the maximum amount that can currently be read from the stream
     size_t buffer_size() const;
