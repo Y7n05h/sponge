@@ -16,7 +16,7 @@ StreamReassembler::StreamReassembler(const size_t capacity) : queue(), _output(c
 //! \details This function accepts a substring (aka a segment) of bytes,
 //! possibly out-of-order, from the logical stream, and assembles any newly
 //! contiguous substrings and writes them into the output stream in order.
-void StreamReassembler::push_substring(const string &data, size_t index, const bool eof) {
+void StreamReassembler::push_substring(const string &data, size_t index, bool eof) {
     auto packetBound = index + data.size();
     if (packetBound < seq) {
         return;
@@ -35,6 +35,7 @@ void StreamReassembler::push_substring(const string &data, size_t index, const b
     auto end = data.cend();
     if (packetBound > maxSeq) {
         end -= packetBound - maxSeq;
+        eof = false;
     }
     size_t pos = 0;
     if (index < seq) {
