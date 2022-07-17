@@ -18,6 +18,7 @@ using namespace std;
 TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const std::optional<WrappingInt32> fixed_isn)
     : _isn(fixed_isn.value_or(WrappingInt32{random_device()()}))
     , _initial_retransmission_timeout{retx_timeout}
+    , retransmission_timeout(retx_timeout)
     , _stream(capacity) {}
 
 uint64_t TCPSender::bytes_in_flight() const {
@@ -40,11 +41,11 @@ void TCPSender::fill_window() {
         flags |= SYN;
         return;
     }
-    if (!(flags & SYN_RECV)) {
+    if (ackno == 0) {
         return;
     }
     if (_stream.buffer_empty()) {
-        if (!(flags & FIN) && _stream.eof()) {
+        if (!(flags & FIN) && _stream.eof() && windows > 0) {
             TCPSegment frame;
             auto &header = frame.header();
             header.fin = true;
@@ -58,12 +59,19 @@ void TCPSender::fill_window() {
     }
     TCPSegment seg;
     seg.header().seqno = wrap(_next_seqno, _isn);
-    const auto size = std::max(1UL, std::min(windows, _stream.buffer_size()));
-    _next_seqno = size;
+    auto size = std::min(windows, _stream.buffer_size());
+    if (size == 0) {
+        return;  // Test
+        windows = 1;
+        size = 1;
+    }
+    windows -= size;
+    _next_seqno += size;
     auto payload = _stream.read(size);
-    if (_stream.eof()) {
+    if (_stream.eof() && windows > 0) {
         seg.header().fin = true;
         flags |= FIN;
+        --windows;
     }
     seg.payload() = Buffer(std::move(payload));
     _segments_out.push(seg);
@@ -75,13 +83,24 @@ void TCPSender::fill_window() {
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_size) {
     auto absoluteAck = unwrap(ackno_, _isn, ackno);
-    if (absoluteAck <= ackno) {
+    if (absoluteAck < ackno) {
         return;
     }
-    windows = window_size;
+    if (absoluteAck == ackno) {
+        auto maxSeq = absoluteAck + window_size;
+        if (maxSeq > _next_seqno + windows) {
+            windows = maxSeq - _next_seqno;
+        }
+        return;
+    }
+    if (absoluteAck > _next_seqno) {
+        return;
+    }
     ackno = absoluteAck;
     restrans = 0;
     ms_last_time = 0;
+    retransmission_timeout = _initial_retransmission_timeout;
+    windows = window_size;
     while (!backup.empty()) {
         const auto packet = backup.front();
         auto packetBound = unwrap(packet.header().seqno, _isn, ackno);
@@ -95,12 +114,12 @@ void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_s
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void TCPSender::tick(const size_t ms_since_last_tick) {
     ms_last_time += ms_since_last_tick;
-    if (ms_last_time < _initial_retransmission_timeout || backup.empty()) {
+    if (ms_last_time < retransmission_timeout || backup.empty()) {
         return;
     }
 
     ms_last_time = 0;
-    _initial_retransmission_timeout <<= 1;
+    retransmission_timeout <<= 1;
     restrans += 1;
 
     _segments_out.push(backup.front());
@@ -109,12 +128,3 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
 unsigned int TCPSender::consecutive_retransmissions() const { return restrans; }
 
 void TCPSender::send_empty_segment() {}
-void TCPSender::sendSYN() noexcept {
-    TCPSegment frame;
-    auto &header = frame.header();
-    header.syn = true;
-    header.seqno = wrap(_next_seqno++, _isn);
-    _segments_out.push(frame);
-    backup.push_back(std::move(frame));
-    ms_last_time = 0;
-}

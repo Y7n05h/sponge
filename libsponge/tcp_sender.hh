@@ -28,21 +28,20 @@ class TCPSender {
     std::queue<TCPSegment> _segments_out{};
 
     //! retransmission timer for the connection
-    unsigned int _initial_retransmission_timeout;
-
+    const uint32_t _initial_retransmission_timeout;
+    uint32_t retransmission_timeout;
     //! outgoing stream of bytes that have not yet been sent
     ByteStream _stream;
     std::deque<TCPSegment> backup;
     size_t ms_last_time{0};
     size_t ms_send{0};
     size_t windows{1};
-    size_t ackno{1};
+    size_t ackno{0};
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
-    enum Flag : uint8_t { SYN = 1 << 0, SYN_RECV = 1 << 1, FIN = 1 << 2 };
+    enum Flag : uint8_t { SYN = 1 << 0, FIN = 1 << 2 };
     uint8_t flags{0};
     uint32_t restrans{0};
-    void sendSYN() noexcept;
 
   public:
     //! Initialize a TCPSender
