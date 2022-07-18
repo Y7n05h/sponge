@@ -3,6 +3,7 @@
 #include "tcp_config.hh"
 
 #include <algorithm>
+#include <cstdint>
 #include <random>
 
 // Dummy implementation of a TCP sender
@@ -27,6 +28,7 @@ void TCPSender::fill_window() {
         header.syn = true;
         header.seqno = wrap(_next_seqno++, _isn);
         _segments_out.push(frame);
+        windows--;
         backup.push_back(std::move(frame));
         flags |= SYN;
         return;
@@ -40,6 +42,7 @@ void TCPSender::fill_window() {
             auto &header = frame.header();
             header.fin = true;
             header.seqno = wrap(_next_seqno++, _isn);
+            --windows;
             _segments_out.push(frame);
             backup.push_back(std::move(frame));
             flags |= FIN;
@@ -79,10 +82,17 @@ void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_s
     if (absoluteAck < ackno || absoluteAck > _next_seqno) {
         return;
     }
-    auto maxSeq = absoluteAck + window_size;
-    if (maxSeq > _next_seqno + windows) {
-        windows = maxSeq - _next_seqno;
+    if (window_size) {
+        auto maxSeq = absoluteAck + window_size;
+        if (maxSeq > _next_seqno + windows) {
+            windows = maxSeq - _next_seqno;
+        }
+        flags &= ~WINDOWS_DETECT;
+    } else {
+        windows = 1;
+        flags |= WINDOWS_DETECT;
     }
+
     if (absoluteAck == ackno) {
         return;
     }
@@ -108,10 +118,10 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
     if (!backup.empty()) {
         restrans += 1;
         _segments_out.push(backup.front());
-        retxTimer.doubleTimeoutRestart();
-    }
-    if (windows == 0) {
-        windows = 1;
+        if (!(flags & WINDOWS_DETECT)) {
+            retxTimer.doubleTimeout();
+        }
+        retxTimer.restart();
     }
 }
 

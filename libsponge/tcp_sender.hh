@@ -29,10 +29,7 @@ class TCPSender {
         explicit logicTimer(uint64_t ms_timeout) noexcept
             : ms_current_timeout(ms_timeout), ms_init_timeout(ms_timeout) {}
         void ticket(uint64_t ms) noexcept { ms_pass += ms; }
-        void doubleTimeoutRestart() noexcept {
-            ms_current_timeout <<= 1;
-            restart();
-        }
+        void doubleTimeout() noexcept { ms_current_timeout <<= 1; }
         void restart() noexcept { ms_pass = 0; }
         void reset() noexcept {
             ms_current_timeout = ms_init_timeout;
@@ -58,7 +55,7 @@ class TCPSender {
     size_t ackno{0};
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
-    enum Flag : uint8_t { SYN = 1 << 0, FIN = 1 << 2 };
+    enum Flag : uint8_t { SYN = 1 << 0, FIN = 1 << 2, WINDOWS_DETECT = 1 << 3 };
     uint8_t flags{0};
     uint32_t restrans{0};
 
