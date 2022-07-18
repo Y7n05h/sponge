@@ -25,10 +25,10 @@ class TCPConnection {
         const auto win = _receiver.window_size();
         const auto ackno = _receiver.ackno();
         auto &sendQueue = _sender.segments_out();
-        if (!sendQueue.empty()) {
-            ms_time = 0;
+        if (sendQueue.empty()) {
             return;
         }
+        ms_time = 0;
         while (!sendQueue.empty()) {
             _segments_out.push(sendQueue.front());
             sendQueue.pop();

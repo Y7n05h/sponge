@@ -20,6 +20,11 @@ size_t TCPConnection::unassembled_bytes() const { return _receiver.unassembled_b
 size_t TCPConnection::time_since_last_segment_received() const { return ms_time; }
 
 void TCPConnection::segment_received(const TCPSegment &seg) {
+    if (seg.header().rst) {
+        _sender.stream_in().set_error();
+        _receiver.stream_out().set_error();
+        return;
+    }
     _receiver.segment_received(seg);
     if (seg.header().ack) {
         _sender.ack_received(seg.header().ackno, seg.header().win);
