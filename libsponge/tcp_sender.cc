@@ -107,6 +107,7 @@ void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_s
         }
         backup.pop_front();
     }
+    fill_window();
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
