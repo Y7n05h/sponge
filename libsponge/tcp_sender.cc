@@ -16,18 +16,9 @@ using namespace std;
 //! \param[in] retx_timeout the initial amount of time to wait before retransmitting the oldest outstanding segment
 //! \param[in] fixed_isn the Initial Sequence Number to use, if set (otherwise uses a random ISN)
 TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const std::optional<WrappingInt32> fixed_isn)
-    : _isn(fixed_isn.value_or(WrappingInt32{random_device()()}))
-    , _initial_retransmission_timeout{retx_timeout}
-    , retransmission_timeout(retx_timeout)
-    , _stream(capacity) {}
+    : _isn(fixed_isn.value_or(WrappingInt32{random_device()()})), retxTimer(retx_timeout), _stream(capacity) {}
 
-uint64_t TCPSender::bytes_in_flight() const {
-    size_t size = 0;
-    for_each(backup.cbegin(), backup.cend(), [&size](const TCPSegment &segment) {
-        size += segment.length_in_sequence_space();
-    });
-    return size;
-}
+uint64_t TCPSender::bytes_in_flight() const { return _next_seqno - ackno; }
 
 void TCPSender::fill_window() {
     if (!(flags & SYN)) {
@@ -37,7 +28,6 @@ void TCPSender::fill_window() {
         header.seqno = wrap(_next_seqno++, _isn);
         _segments_out.push(frame);
         backup.push_back(std::move(frame));
-        ms_last_time = 0;
         flags |= SYN;
         return;
     }
@@ -52,58 +42,56 @@ void TCPSender::fill_window() {
             header.seqno = wrap(_next_seqno++, _isn);
             _segments_out.push(frame);
             backup.push_back(std::move(frame));
-            ms_last_time = 0;
             flags |= FIN;
         }
         return;
     }
-    TCPSegment seg;
-    seg.header().seqno = wrap(_next_seqno, _isn);
-    auto size = std::min(windows, _stream.buffer_size());
-    if (size == 0) {
-        return;  // Test
-        windows = 1;
-        size = 1;
+    while (windows > 0) {
+        TCPSegment seg;
+        seg.header().seqno = wrap(_next_seqno, _isn);
+        auto size = std::min(windows, _stream.buffer_size());
+        size = std::min(size, TCPConfig::MAX_PAYLOAD_SIZE);
+        windows -= size;
+        _next_seqno += size;
+        auto payload = _stream.read(size);
+        if (_stream.eof() && windows > 0) {
+            seg.header().fin = true;
+            flags |= FIN;
+            --windows;
+            ++_next_seqno;
+        }
+        seg.payload() = Buffer(std::move(payload));
+        _segments_out.push(seg);
+        backup.push_back(std::move(seg));
+        if (_stream.buffer_empty()) {
+            if (_stream.eof() && !(flags & FIN)) {
+                continue;
+            }
+            return;
+        }
     }
-    windows -= size;
-    _next_seqno += size;
-    auto payload = _stream.read(size);
-    if (_stream.eof() && windows > 0) {
-        seg.header().fin = true;
-        flags |= FIN;
-        --windows;
-    }
-    seg.payload() = Buffer(std::move(payload));
-    _segments_out.push(seg);
-    backup.push_back(std::move(seg));
-    ms_last_time = 0;
 }
 
 //! \param ackno The remote receiver's ackno (acknowledgment number)
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_size) {
     auto absoluteAck = unwrap(ackno_, _isn, ackno);
-    if (absoluteAck < ackno) {
+    if (absoluteAck < ackno || absoluteAck > _next_seqno) {
         return;
+    }
+    auto maxSeq = absoluteAck + window_size;
+    if (maxSeq > _next_seqno + windows) {
+        windows = maxSeq - _next_seqno;
     }
     if (absoluteAck == ackno) {
-        auto maxSeq = absoluteAck + window_size;
-        if (maxSeq > _next_seqno + windows) {
-            windows = maxSeq - _next_seqno;
-        }
-        return;
-    }
-    if (absoluteAck > _next_seqno) {
         return;
     }
     ackno = absoluteAck;
     restrans = 0;
-    ms_last_time = 0;
-    retransmission_timeout = _initial_retransmission_timeout;
-    windows = window_size;
+    retxTimer.reset();
     while (!backup.empty()) {
         const auto packet = backup.front();
-        auto packetBound = unwrap(packet.header().seqno, _isn, ackno);
+        auto packetBound = unwrap(packet.header().seqno, _isn, ackno) + packet.length_in_sequence_space();
         if (packetBound > absoluteAck) {
             return;
         }
@@ -113,16 +101,18 @@ void TCPSender::ack_received(const WrappingInt32 ackno_, const uint16_t window_s
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void TCPSender::tick(const size_t ms_since_last_tick) {
-    ms_last_time += ms_since_last_tick;
-    if (ms_last_time < retransmission_timeout || backup.empty()) {
+    retxTimer.ticket(ms_since_last_tick);
+    if (!retxTimer.timeout()) {
         return;
     }
-
-    ms_last_time = 0;
-    retransmission_timeout <<= 1;
-    restrans += 1;
-
-    _segments_out.push(backup.front());
+    if (!backup.empty()) {
+        restrans += 1;
+        _segments_out.push(backup.front());
+        retxTimer.doubleTimeoutRestart();
+    }
+    if (windows == 0) {
+        windows = 1;
+    }
 }
 
 unsigned int TCPSender::consecutive_retransmissions() const { return restrans; }

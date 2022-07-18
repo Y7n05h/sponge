@@ -20,6 +20,27 @@
 //! maintains the Retransmission Timer, and retransmits in-flight
 //! segments if the retransmission timer expires.
 class TCPSender {
+    class logicTimer {
+        uint64_t ms_pass{0};
+        uint64_t ms_current_timeout;
+        const uint64_t ms_init_timeout;
+
+      public:
+        explicit logicTimer(uint64_t ms_timeout) noexcept
+            : ms_current_timeout(ms_timeout), ms_init_timeout(ms_timeout) {}
+        void ticket(uint64_t ms) noexcept { ms_pass += ms; }
+        void doubleTimeoutRestart() noexcept {
+            ms_current_timeout <<= 1;
+            restart();
+        }
+        void restart() noexcept { ms_pass = 0; }
+        void reset() noexcept {
+            ms_current_timeout = ms_init_timeout;
+            restart();
+        }
+        [[nodiscard]] bool timeout() const noexcept { return ms_pass >= ms_current_timeout; }
+    };
+
   private:
     //! our initial sequence number, the number for our SYN.
     WrappingInt32 _isn;
@@ -28,12 +49,10 @@ class TCPSender {
     std::queue<TCPSegment> _segments_out{};
 
     //! retransmission timer for the connection
-    const uint32_t _initial_retransmission_timeout;
-    uint32_t retransmission_timeout;
+    logicTimer retxTimer;
     //! outgoing stream of bytes that have not yet been sent
     ByteStream _stream;
     std::deque<TCPSegment> backup;
-    size_t ms_last_time{0};
     size_t ms_send{0};
     size_t windows{1};
     size_t ackno{0};
