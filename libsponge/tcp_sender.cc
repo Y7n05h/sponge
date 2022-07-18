@@ -1,6 +1,7 @@
 #include "tcp_sender.hh"
 
 #include "tcp_config.hh"
+#include "tcp_segment.hh"
 
 #include <algorithm>
 #include <cstdint>
@@ -128,3 +129,9 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
 unsigned int TCPSender::consecutive_retransmissions() const { return restrans; }
 
 void TCPSender::send_empty_segment() {}
+void TCPSender::send_rst_segment() {
+    TCPSegment seg;
+    seg.header().rst = true;
+    _segments_out.push(seg);
+    _stream.set_error();
+}
