@@ -21,11 +21,19 @@ class TCPConnection {
     //! for 10 * _cfg.rt_timeout milliseconds after both streams have ended,
     //! in case the remote TCPConnection doesn't know we've received its whole stream?
     bool _linger_after_streams_finish{true};
-    void send() {
+    void send(bool needReply) {
         const auto win = _receiver.window_size();
         const auto ackno = _receiver.ackno();
         auto &sendQueue = _sender.segments_out();
         if (sendQueue.empty()) {
+            if (needReply) {
+                _sender.send_empty_segment();
+                auto &seg = sendQueue.front();
+                seg.header().ack = true;
+                seg.header().ackno = ackno.value();
+                _segments_out.push(sendQueue.front());
+                sendQueue.pop();
+            }
             return;
         }
         ms_time = 0;
@@ -39,6 +47,15 @@ class TCPConnection {
                 header.ackno = ackno.value();
             }
         }
+    }
+
+    void sendRst() {
+        auto &segments = _sender.segments_out();
+        _sender.send_empty_segment();
+        segments.front().header().rst = true;
+        _segments_out.push(segments.front());
+        _sender.stream_in().set_error();
+        _receiver.stream_out().set_error();
     }
 
   public:
