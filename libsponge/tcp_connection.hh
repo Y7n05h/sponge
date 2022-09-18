@@ -5,7 +5,6 @@
 #include "tcp_receiver.hh"
 #include "tcp_sender.hh"
 #include "tcp_state.hh"
-#include "wrapping_integers.hh"
 
 //! \brief A complete endpoint of a TCP connection
 class TCPConnection {
@@ -13,7 +12,7 @@ class TCPConnection {
     TCPConfig _cfg;
     TCPReceiver _receiver{_cfg.recv_capacity};
     TCPSender _sender{_cfg.send_capacity, _cfg.rt_timeout, _cfg.fixed_isn};
-    size_t ms_time{0};
+
     //! outbound queue of segments that the TCPConnection wants sent
     std::queue<TCPSegment> _segments_out{};
 
@@ -21,42 +20,12 @@ class TCPConnection {
     //! for 10 * _cfg.rt_timeout milliseconds after both streams have ended,
     //! in case the remote TCPConnection doesn't know we've received its whole stream?
     bool _linger_after_streams_finish{true};
-    void send(bool needReply) {
-        const auto win = _receiver.window_size();
-        const auto ackno = _receiver.ackno();
-        auto &sendQueue = _sender.segments_out();
-        if (sendQueue.empty()) {
-            if (needReply) {
-                _sender.send_empty_segment();
-                auto &seg = sendQueue.front();
-                seg.header().ack = true;
-                seg.header().ackno = ackno.value();
-                _segments_out.push(sendQueue.front());
-                sendQueue.pop();
-            }
-            return;
-        }
-        ms_time = 0;
-        while (!sendQueue.empty()) {
-            _segments_out.push(sendQueue.front());
-            sendQueue.pop();
-            auto &header = _segments_out.front().header();
-            header.win = win;
-            if (ackno.has_value()) {
-                header.ack = true;
-                header.ackno = ackno.value();
-            }
-        }
-    }
 
-    void sendRst() {
-        auto &segments = _sender.segments_out();
-        _sender.send_empty_segment();
-        segments.front().header().rst = true;
-        _segments_out.push(segments.front());
-        _sender.stream_in().set_error();
-        _receiver.stream_out().set_error();
-    }
+    size_t _time_since_last_segment_received_ms{0};
+    bool _is_active{true};
+
+    void _set_rst_state(bool send_rst);
+    void _trans_segments_to_out_with_ack_and_win();
 
   public:
     //! \name "Input" interface for the writer
