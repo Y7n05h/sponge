@@ -19,6 +19,9 @@ size_t TCPConnection::unassembled_bytes() const { return _receiver.unassembled_b
 size_t TCPConnection::time_since_last_segment_received() const { return _time_since_last_segment_received_ms; }
 
 void TCPConnection::segment_received(const TCPSegment &seg) {
+#ifdef DEBUG
+    fd.hexdump(seg, true);
+#endif
     _time_since_last_segment_received_ms = 0;
     // 如果发来的是一个 ACK 包，则无需发送 ACK
     bool need_send_ack = seg.length_in_sequence_space();
@@ -135,6 +138,9 @@ void TCPConnection::_set_rst_state(bool send_rst) {
     if (send_rst) {
         TCPSegment rst_seg;
         rst_seg.header().rst = true;
+#ifdef DEBUG
+        fd.hexdump(rst_seg, true);
+#endif
         _segments_out.push(rst_seg);
     }
     _receiver.stream_out().set_error();
@@ -153,6 +159,11 @@ void TCPConnection::_trans_segments_to_out_with_ack_and_win() {
             seg.header().ackno = _receiver.ackno().value();
             seg.header().win = _receiver.window_size();
         }
+
+#ifdef DEBUG
+        fd.hexdump(seg, true);
+#endif
+
         _segments_out.push(seg);
     }
 }
