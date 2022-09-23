@@ -6,6 +6,7 @@
 #include "tcp_segment.hh"
 #include "wrapping_integers.hh"
 
+#include <cstdint>
 #include <optional>
 
 //! \brief The "receiver" part of a TCP implementation.
@@ -15,17 +16,25 @@
 //! remote TCPSender.
 class TCPReceiver {
     //! Our data structure for re-assembling bytes.
-    StreamReassembler _reassembler;
+    StreamReassembler reassembler;
 
     //! The maximum number of bytes we'll store.
-    size_t _capacity;
+    size_t capacity;
+    size_t checkPoint{};
+    WrappingInt32 isn{UINT32_MAX};
+    uint8_t flags{0};
+    uint8_t offset{0};
+    enum Flag : uint8_t {
+        SYN = 1 << 0,
+        FIN = 1 << 1,
+    };
 
   public:
     //! \brief Construct a TCP receiver
     //!
     //! \param capacity the maximum number of bytes that the receiver will
     //!                 store in its buffers at any give time.
-    TCPReceiver(const size_t capacity) : _reassembler(capacity), _capacity(capacity) {}
+    TCPReceiver(const size_t capacity_) : reassembler(capacity_), capacity(capacity_) {}
 
     //! \name Accessors to provide feedback to the remote TCPSender
     //!@{
@@ -47,19 +56,19 @@ class TCPReceiver {
     //! the first byte that falls after the window (and will not be
     //! accepted by the receiver) and (b) the sequence number of the
     //! beginning of the window (the ackno).
-    size_t window_size() const;
+    [[nodiscard]] size_t window_size() const;
     //!@}
 
     //! \brief number of bytes stored but not yet reassembled
-    size_t unassembled_bytes() const { return _reassembler.unassembled_bytes(); }
+    [[nodiscard]] size_t unassembled_bytes() const { return reassembler.unassembled_bytes(); }
 
     //! \brief handle an inbound segment
     void segment_received(const TCPSegment &seg);
 
     //! \name "Output" interface for the reader
     //!@{
-    ByteStream &stream_out() { return _reassembler.stream_out(); }
-    const ByteStream &stream_out() const { return _reassembler.stream_out(); }
+    [[nodiscard]] ByteStream &stream_out() { return reassembler.stream_out(); }
+    [[nodiscard]] const ByteStream &stream_out() const { return reassembler.stream_out(); }
     //!@}
 };
 

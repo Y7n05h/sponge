@@ -6,7 +6,11 @@
 #include "tcp_segment.hh"
 #include "wrapping_integers.hh"
 
+#include <cstddef>
+#include <cstdint>
+#include <deque>
 #include <functional>
+#include <optional>
 #include <queue>
 
 //! \brief The "sender" part of a TCP implementation.
@@ -16,6 +20,24 @@
 //! maintains the Retransmission Timer, and retransmits in-flight
 //! segments if the retransmission timer expires.
 class TCPSender {
+    class logicTimer {
+        uint64_t ms_pass{0};
+        uint64_t ms_current_timeout;
+        const uint64_t ms_init_timeout;
+
+      public:
+        explicit logicTimer(uint64_t ms_timeout) noexcept
+            : ms_current_timeout(ms_timeout), ms_init_timeout(ms_timeout) {}
+        void ticket(uint64_t ms) noexcept { ms_pass += ms; }
+        void doubleTimeout() noexcept { ms_current_timeout <<= 1; }
+        void restart() noexcept { ms_pass = 0; }
+        void reset() noexcept {
+            ms_current_timeout = ms_init_timeout;
+            restart();
+        }
+        [[nodiscard]] bool timeout() const noexcept { return ms_pass >= ms_current_timeout; }
+    };
+
   private:
     //! our initial sequence number, the number for our SYN.
     WrappingInt32 _isn;
@@ -24,13 +46,18 @@ class TCPSender {
     std::queue<TCPSegment> _segments_out{};
 
     //! retransmission timer for the connection
-    unsigned int _initial_retransmission_timeout;
-
+    logicTimer retxTimer;
     //! outgoing stream of bytes that have not yet been sent
     ByteStream _stream;
-
+    std::deque<TCPSegment> backup;
+    size_t ms_send{0};
+    size_t windows{1};
+    size_t ackno{0};
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
+    enum Flag : uint8_t { SYN = 1 << 0, FIN = 1 << 2, WINDOWS_DETECT = 1 << 3 };
+    uint8_t flags{0};
+    uint32_t restrans{0};
 
   public:
     //! Initialize a TCPSender
