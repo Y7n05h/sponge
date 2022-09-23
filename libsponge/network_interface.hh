@@ -55,8 +55,8 @@ class NetworkInterface {
         bool valid() { return addr != ETHERNET_BROADCAST; }
     };
     std::unordered_map<uint32_t, ArpEntry> arpMap;
-    uint64_t time = PERIOD;
-    static constexpr uint64_t PERIOD = 1000;
+    uint64_t time = ARPPENDING;
+    static constexpr uint64_t PERIOD = 1000 * 30;
     static constexpr uint64_t ARPPENDING = 5000;
 
   public:

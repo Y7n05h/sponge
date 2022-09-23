@@ -126,7 +126,10 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void NetworkInterface::tick(const size_t ms_since_last_tick) { time += ms_since_last_tick; }
 void NetworkInterface::sendArp(const uint32_t ip, ArpEntry &entry) {
-
+    if (time < entry.requestTime + ARPPENDING) {
+        return;
+    }
+    entry.requestTime = time;
     ARPMessage arp;
     arp.opcode = ARPMessage::OPCODE_REQUEST;
     arp.sender_ethernet_address = _ethernet_address;
