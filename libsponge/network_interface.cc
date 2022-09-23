@@ -2,6 +2,7 @@
 
 #include "arp_message.hh"
 #include "ethernet_frame.hh"
+#include "ethernet_header.hh"
 
 #include <iostream>
 
@@ -34,6 +35,7 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
     if (iter == arpMap.end()) {
         arpMap[ip] = ArpEntry();
         arpMap[ip].wait.push_back(dgram);
+        sendArp(ip, arpMap[ip]);
         return;
     }
     auto &entry = iter->second;
@@ -49,6 +51,7 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
         _frames_out.push(frame);
         return;
     }
+    sendArp(ip, entry);
     entry.wait.push_back(dgram);
 }
 
@@ -56,6 +59,9 @@ void NetworkInterface::send_datagram(const InternetDatagram &dgram, const Addres
 optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &frame) {
     const auto &header = frame.header();
     if (header.type == EthernetHeader::TYPE_IPv4) {
+        if (header.dst != _ethernet_address) {
+            return {};
+        }
         InternetDatagram ipv4;
         if (ipv4.parse(frame.payload()) != ParseResult::NoError) {
             throw runtime_error("Parse Error");
@@ -63,6 +69,9 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
         return ipv4;
     }
     if (header.type == EthernetHeader::TYPE_ARP) {
+        if (header.dst != _ethernet_address && header.dst != ETHERNET_BROADCAST) {
+            return {};
+        }
         ARPMessage arp;
         if (arp.parse(frame.payload()) != ParseResult::NoError) {
             throw runtime_error("Parse Error");
@@ -116,3 +125,22 @@ optional<InternetDatagram> NetworkInterface::recv_frame(const EthernetFrame &fra
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void NetworkInterface::tick(const size_t ms_since_last_tick) { time += ms_since_last_tick; }
+void NetworkInterface::sendArp(const uint32_t ip, ArpEntry &entry) {
+
+    ARPMessage arp;
+    arp.opcode = ARPMessage::OPCODE_REQUEST;
+    arp.sender_ethernet_address = _ethernet_address;
+    arp.sender_ip_address = _ip_address.ipv4_numeric();
+
+    arp.target_ethernet_address = EthernetAddress{0, 0, 0, 0, 0, 0};
+    arp.target_ip_address = ip;
+    EthernetFrame frame;
+
+    auto &header = frame.header();
+    header.src = _ethernet_address;
+    header.dst = ETHERNET_BROADCAST;
+    header.type = EthernetHeader::TYPE_ARP;
+    frame.payload() = arp.serialize();
+
+    _frames_out.push(frame);
+}

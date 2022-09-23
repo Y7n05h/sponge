@@ -49,13 +49,15 @@ class NetworkInterface {
         std::vector<InternetDatagram> wait;
         EthernetAddress addr = ETHERNET_BROADCAST;
         uint64_t expiration = 0;
+        uint64_t requestTime = 0;
         ArpEntry() = default;
         ArpEntry(EthernetAddress _addr, uint64_t _expr) : addr(_addr), expiration(_expr) {}
         bool valid() { return addr != ETHERNET_BROADCAST; }
     };
-    std::unordered_map<uint16_t, ArpEntry> arpMap;
-    uint64_t time = 0;
-    static constexpr uint64_t PERIOD = 100;
+    std::unordered_map<uint32_t, ArpEntry> arpMap;
+    uint64_t time = PERIOD;
+    static constexpr uint64_t PERIOD = 1000;
+    static constexpr uint64_t ARPPENDING = 5000;
 
   public:
     //! \brief Construct a network interface with given Ethernet (network-access-layer) and IP (internet-layer) addresses
@@ -79,6 +81,7 @@ class NetworkInterface {
 
     //! \brief Called periodically when time elapses
     void tick(const size_t ms_since_last_tick);
+    void sendArp(const uint32_t ip, ArpEntry &entry);
 };
 
 #endif  // SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
