@@ -39,6 +39,7 @@ void TCPSender::fill_window() {
     }
     if (_stream.buffer_empty()) {
         if (!(flags & FIN) && _stream.eof() && windows > 0) {
+            retxTimer.reset();
             TCPSegment frame;
             auto &header = frame.header();
             header.fin = true;
@@ -129,4 +130,8 @@ void TCPSender::tick(const size_t ms_since_last_tick) {
 
 unsigned int TCPSender::consecutive_retransmissions() const { return restrans; }
 
-void TCPSender::send_empty_segment() { _segments_out.push(TCPSegment{}); }
+void TCPSender::send_empty_segment() {
+    TCPSegment seg{};
+    seg.header().seqno = wrap(_next_seqno, _isn);
+    _segments_out.push(seg);
+}
