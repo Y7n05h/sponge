@@ -1,12 +1,18 @@
 #ifndef SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
 #define SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
 
+#include "arp_message.hh"
 #include "ethernet_frame.hh"
+#include "ethernet_header.hh"
+#include "ipv4_datagram.hh"
 #include "tcp_over_ip.hh"
 #include "tun.hh"
 
+#include <cstdint>
 #include <optional>
 #include <queue>
+#include <unordered_map>
+#include <vector>
 
 //! \brief A "network interface" that connects IP (the internet layer, or network layer)
 //! with Ethernet (the network access layer, or link layer).
@@ -39,6 +45,19 @@ class NetworkInterface {
 
     //! outbound queue of Ethernet frames that the NetworkInterface wants sent
     std::queue<EthernetFrame> _frames_out{};
+    struct ArpEntry {
+        std::vector<InternetDatagram> wait;
+        EthernetAddress addr = ETHERNET_BROADCAST;
+        uint64_t expiration = 0;
+        uint64_t requestTime = 0;
+        ArpEntry() = default;
+        ArpEntry(EthernetAddress _addr, uint64_t _expr) : addr(_addr), expiration(_expr) {}
+        bool valid() { return addr != ETHERNET_BROADCAST; }
+    };
+    std::unordered_map<uint32_t, ArpEntry> arpMap;
+    uint64_t time = ARPPENDING;
+    static constexpr uint64_t PERIOD = 1000 * 30;
+    static constexpr uint64_t ARPPENDING = 5000;
 
   public:
     //! \brief Construct a network interface with given Ethernet (network-access-layer) and IP (internet-layer) addresses
@@ -62,6 +81,7 @@ class NetworkInterface {
 
     //! \brief Called periodically when time elapses
     void tick(const size_t ms_since_last_tick);
+    void sendArp(const uint32_t ip, ArpEntry &entry);
 };
 
 #endif  // SPONGE_LIBSPONGE_NETWORK_INTERFACE_HH
