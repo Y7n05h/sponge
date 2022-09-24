@@ -1,6 +1,7 @@
 #ifndef SPONGE_LIBSPONGE_ROUTER_HH
 #define SPONGE_LIBSPONGE_ROUTER_HH
 
+#include "lpm.hh"
 #include "network_interface.hh"
 
 #include <optional>
@@ -41,8 +42,16 @@ class AsyncNetworkInterface : public NetworkInterface {
 //! \brief A router that has multiple network interfaces and
 //! performs longest-prefix-match routing between them.
 class Router {
+    struct RouterEntry {
+        const std::optional<Address> next_hop;
+        const size_t interface_num;
+
+        RouterEntry(const std::optional<Address> &next_hop_, size_t interface_num_) noexcept
+            : next_hop(next_hop_), interface_num(interface_num_) {}
+    };
     //! The router's collection of network interfaces
     std::vector<AsyncNetworkInterface> _interfaces{};
+    LpmTrie<RouterEntry> lpm;
 
     //! Send a single datagram from the appropriate outbound interface to the next hop,
     //! as specified by the route with the longest prefix_length that matches the
