@@ -47,6 +47,9 @@ class LpmTrieInfo {
         return prefixlen;
     }
     inline int extract_bit(size_t index) const noexcept { return !!(data[index / 8] & (1 << (7 - (index % 8)))); }
+    LpmTrieInfo(uint32_t prefix, uint32_t prefixLen_ = max_prerfixlen) noexcept : prefixLen(prefixLen_) {
+        *(__be32 *)data = __cpu_to_be32(prefix);
+    }
 #ifdef DEBUG
     using string = std::string;
     static std::pair<string, string> splitField(const string &inp, char sepa) {
